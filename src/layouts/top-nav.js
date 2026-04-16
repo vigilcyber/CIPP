@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import NextLink from "next/link";
 import PropTypes from "prop-types";
 import Bars3Icon from "@heroicons/react/24/outline/Bars3Icon";
+import MagnifyingGlassIcon from "@heroicons/react/24/outline/MagnifyingGlassIcon";
 import MoonIcon from "@heroicons/react/24/outline/MoonIcon";
 import SunIcon from "@heroicons/react/24/outline/SunIcon";
 import BookmarkIcon from "@mui/icons-material/Bookmark";
+import TravelExploreIcon from "@mui/icons-material/TravelExplore";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
@@ -17,6 +19,9 @@ import LockOpenIcon from "@mui/icons-material/LockOpen";
 import {
   Box,
   Divider,
+  Dialog,
+  DialogContent,
+  DialogTitle,
   IconButton,
   Stack,
   SvgIcon,
@@ -29,20 +34,21 @@ import {
 } from "@mui/material";
 import { Logo } from "../components/logo";
 import { useSettings } from "../hooks/use-settings";
+import { useUserBookmarks } from "../hooks/use-user-bookmarks";
 import { paths } from "../paths";
 import { AccountPopover } from "./account-popover";
 import { CippTenantSelector } from "../components/CippComponents/CippTenantSelector";
 import { NotificationsPopover } from "./notifications-popover";
 import { useDialog } from "../hooks/use-dialog";
-import { MagnifyingGlassIcon } from "@heroicons/react/24/outline";
-import { CippCentralSearch } from "../components/CippComponents/CippCentralSearch";
+import { CippUniversalSearchV2 } from "../components/CippCards/CippUniversalSearchV2";
 
 const TOP_NAV_HEIGHT = 64;
 
 export const TopNav = (props) => {
-  const searchDialog = useDialog();
+  const universalSearchDialog = useDialog();
   const { onNavOpen } = props;
   const settings = useSettings();
+  const { bookmarks, setBookmarks } = useUserBookmarks();
   const mdDown = useMediaQuery((theme) => theme.breakpoints.down("md"));
   const showPopoverBookmarks = settings.bookmarkPopover === true;
   const reorderMode = settings.bookmarkReorderMode || "arrows";
@@ -62,6 +68,8 @@ export const TopNav = (props) => {
   const [animatingPair, setAnimatingPair] = useState(null);
   const [flashSort, setFlashSort] = useState(false);
   const [flashLock, setFlashLock] = useState(false);
+  const [universalSearchKey, setUniversalSearchKey] = useState(0);
+  const [universalSearchDefaultType, setUniversalSearchDefaultType] = useState("Users");
   const itemRefs = useRef({});
   const touchDragRef = useRef({ startIdx: null, overIdx: null });
   const tenantSelectorRef = useRef(null);
@@ -90,10 +98,10 @@ export const TopNav = (props) => {
       setDragOverIndex(null);
       return;
     }
-    const items = [...(settings.bookmarks || [])];
+    const items = [...bookmarks];
     const [reordered] = items.splice(dragIndex, 1);
     items.splice(dropIndex, 0, reordered);
-    settings.handleUpdate({ bookmarks: items });
+    setBookmarks(items);
     setDragIndex(null);
     setDragOverIndex(null);
   };
@@ -105,29 +113,28 @@ export const TopNav = (props) => {
 
   const moveBookmarkUp = (index) => {
     if (index <= 0) return;
-    const updatedBookmarks = [...(settings.bookmarks || [])];
+    const updatedBookmarks = [...bookmarks];
     const temp = updatedBookmarks[index];
     updatedBookmarks[index] = updatedBookmarks[index - 1];
     updatedBookmarks[index - 1] = temp;
-    settings.handleUpdate({ bookmarks: updatedBookmarks });
+    setBookmarks(updatedBookmarks);
   };
 
   const moveBookmarkDown = (index) => {
-    const bookmarks = settings.bookmarks || [];
     if (index >= bookmarks.length - 1) return;
     const updatedBookmarks = [...bookmarks];
     const temp = updatedBookmarks[index];
     updatedBookmarks[index] = updatedBookmarks[index + 1];
     updatedBookmarks[index + 1] = temp;
-    settings.handleUpdate({ bookmarks: updatedBookmarks });
+    setBookmarks(updatedBookmarks);
   };
 
   const removeBookmark = (path) => {
-    const updatedBookmarks = [...(settings.bookmarks || [])];
+    const updatedBookmarks = [...bookmarks];
     const origIdx = updatedBookmarks.findIndex((b) => b.path === path);
     if (origIdx !== -1) {
       updatedBookmarks.splice(origIdx, 1);
-      settings.handleUpdate({ bookmarks: updatedBookmarks });
+      setBookmarks(updatedBookmarks);
     }
   };
 
@@ -162,7 +169,6 @@ export const TopNav = (props) => {
   };
 
   const animatedMoveDown = (index) => {
-    const bookmarks = settings.bookmarks || [];
     if (index >= bookmarks.length - 1 || animatingPair) return;
     const el1 = itemRefs.current[index];
     const el2 = itemRefs.current[index + 1];
@@ -185,35 +191,43 @@ export const TopNav = (props) => {
   };
 
   const displayBookmarks = useMemo(() => {
-    const bookmarks = settings.bookmarks || [];
     if (sortOrder === "custom") return bookmarks;
     return [...bookmarks].sort((a, b) => {
       const cmp = (a.label || "").localeCompare(b.label || "");
       return sortOrder === "asc" ? cmp : -cmp;
     });
-  }, [settings.bookmarks, sortOrder]);
+  }, [bookmarks, sortOrder]);
   const popoverOpen = Boolean(anchorEl);
   const popoverId = popoverOpen ? "bookmark-popover" : undefined;
 
-  const openSearch = useCallback(() => {
-    searchDialog.handleOpen();
-  }, [searchDialog.handleOpen]);
+  const openUniversalSearch = useCallback((defaultType = "Users") => {
+    setUniversalSearchDefaultType(defaultType);
+    universalSearchDialog.handleOpen();
+  }, [universalSearchDialog.handleOpen]);
+
+  const closeUniversalSearch = useCallback(() => {
+    universalSearchDialog.handleClose();
+    setUniversalSearchKey((prev) => prev + 1);
+  }, [universalSearchDialog.handleClose]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
       if ((event.metaKey || event.ctrlKey) && event.altKey && event.key === "k") {
         event.preventDefault();
         tenantSelectorRef.current?.focus();
+      } else if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === "K") {
+        event.preventDefault();
+        openUniversalSearch("Users");
       } else if ((event.metaKey || event.ctrlKey) && event.key === "k") {
         event.preventDefault();
-        openSearch();
+        openUniversalSearch("Pages");
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [openSearch]);
+  }, [openUniversalSearch]);
 
   return (
     <Box
@@ -229,6 +243,7 @@ export const TopNav = (props) => {
       <Stack
         direction="row"
         justifyContent="space-between"
+        alignItems="center"
         sx={{
           minHeight: TOP_NAV_HEIGHT,
           px: 3,
@@ -272,17 +287,32 @@ export const TopNav = (props) => {
         </Stack>
         <Stack alignItems="center" direction="row" spacing={1.5}>
           {!mdDown && (
+            <IconButton
+              color="inherit"
+              onClick={() => openUniversalSearch("Users")}
+              title="Open Universal Search (Ctrl/Cmd+Shift+K)"
+            >
+              <TravelExploreIcon color="action" fontSize="small" />
+            </IconButton>
+          )}
+          {!mdDown && (
             <IconButton color="inherit" onClick={handleThemeSwitch}>
               <SvgIcon color="action" fontSize="small">
                 {settings?.currentTheme?.value === "dark" ? <SunIcon /> : <MoonIcon />}
               </SvgIcon>
             </IconButton>
           )}
-          <IconButton color="inherit" onClick={() => openSearch()}>
-            <SvgIcon color="action" fontSize="small">
-              <MagnifyingGlassIcon />
-            </SvgIcon>
-          </IconButton>
+          {!mdDown && (
+            <IconButton
+              color="inherit"
+              onClick={() => openUniversalSearch("Pages")}
+              title="Open Page Search (Ctrl/Cmd+K)"
+            >
+              <SvgIcon color="action" fontSize="small">
+                <MagnifyingGlassIcon />
+              </SvgIcon>
+            </IconButton>
+          )}
           {showPopoverBookmarks && (
             <>
               <IconButton color="inherit" onClick={handleBookmarkClick}>
@@ -454,11 +484,7 @@ export const TopNav = (props) => {
                               const li = el?.closest("[data-bookmark-index]");
                               if (li) {
                                 const overIdx = parseInt(li.dataset.bookmarkIndex, 10);
-                                if (
-                                  !isNaN(overIdx) &&
-                                  overIdx >= 0 &&
-                                  overIdx < (settings.bookmarks || []).length
-                                ) {
+                                if (!isNaN(overIdx) && overIdx >= 0 && overIdx < bookmarks.length) {
                                   touchDragRef.current.overIdx = overIdx;
                                   setDragOverIndex(overIdx);
                                 }
@@ -467,10 +493,10 @@ export const TopNav = (props) => {
                             onTouchEnd={() => {
                               const { startIdx, overIdx } = touchDragRef.current;
                               if (startIdx !== null && overIdx !== null && startIdx !== overIdx) {
-                                const items = [...(settings.bookmarks || [])];
+                                const items = [...bookmarks];
                                 const [reordered] = items.splice(startIdx, 1);
                                 items.splice(overIdx, 0, reordered);
-                                settings.handleUpdate({ bookmarks: items });
+                                setBookmarks(items);
                               }
                               touchDragRef.current = { startIdx: null, overIdx: null };
                               setDragIndex(null);
@@ -575,7 +601,33 @@ export const TopNav = (props) => {
               </Popover>
             </>
           )}
-          <CippCentralSearch open={searchDialog.open} handleClose={searchDialog.handleClose} />
+          <Dialog
+            open={universalSearchDialog.open}
+            onClose={closeUniversalSearch}
+            fullWidth
+            maxWidth="md"
+            sx={{
+              "& .MuiDialog-container": {
+                alignItems: "flex-start",
+              },
+              "& .MuiDialog-paper": {
+                mt: 8,
+              },
+            }}
+          >
+            <DialogTitle sx={{ px: 3, pt: 2, pb: 1 }}>Universal Search</DialogTitle>
+            <DialogContent sx={{ px: 3, pt: 1, pb: 3 }}>
+              <Box>
+                <CippUniversalSearchV2
+                  key={universalSearchKey}
+                  maxResults={12}
+                  autoFocus={true}
+                  defaultSearchType={universalSearchDefaultType}
+                  onConfirm={closeUniversalSearch}
+                />
+              </Box>
+            </DialogContent>
+          </Dialog>
           <NotificationsPopover />
           <AccountPopover
             onThemeSwitch={handleThemeSwitch}
